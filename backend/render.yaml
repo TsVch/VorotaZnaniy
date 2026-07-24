@@ -18,7 +18,7 @@ services:
     env: node
     region: frankfurt          # Closest to most Russian users (low latency)
     plan: starter              # $7/month — required for persistent webhooks
-    buildCommand: npm install && npm run build && npx prisma generate
+    buildCommand: npm install --include=dev && npm run build && npx prisma generate
     startCommand: npx prisma migrate deploy && node dist/main
     healthCheckPath: /health
     healthCheckTimeout: 60
