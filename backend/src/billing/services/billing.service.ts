@@ -74,6 +74,14 @@ export class BillingService {
       });
     }
 
+    // ── Mock provider: schedule simulated webhook ─────────────────
+    // The mock provider doesn't call back to BillingService (would create a
+    // circular dependency). Instead, BillingService detects mock mode and
+    // schedules the webhook simulation itself after a realistic delay.
+    if (this.paymentProvider.getProviderName() === 'mock') {
+      this.scheduleMockWebhook(result.providerTransactionId, dto);
+    }
+
     return {
       confirmationUrl: result.confirmationUrl,
       providerTransactionId: result.providerTransactionId,
@@ -365,6 +373,50 @@ export class BillingService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Schedule a mock webhook callback after payment creation.
+   *
+   * After a ~2s delay, simulates YooKassa sending a `payment.succeeded` event
+   * so that the full payment cycle (create → webhook → activate) works end-to-end
+   * without a real payment provider.
+   *
+   * Only called when PAYMENT_PROVIDER_ACTIVE=mock.
+   */
+  private scheduleMockWebhook(
+    paymentId: string,
+    dto: CreatePaymentDto,
+  ): void {
+    setTimeout(() => {
+      const mockPayload: Record<string, unknown> = {
+        type: 'notification',
+        event: 'payment.succeeded',
+        object: {
+          id: paymentId,
+          status: 'succeeded',
+          amount: {
+            value: (dto.amount / 100).toFixed(2),
+            currency: dto.currency ?? 'RUB',
+          },
+          metadata: {
+            workspaceId: dto.workspaceId,
+          },
+          created_at: new Date().toISOString(),
+        },
+      };
+
+      this.logger.log(
+        `[Mock] Simulating webhook for payment: ${paymentId}`,
+      );
+
+      this.processWebhookEvent(mockPayload, 'mock-signature').catch(
+        (err: Error) =>
+          this.logger.error(
+            `[Mock] Webhook simulation failed: ${err.message}`,
+          ),
+      );
+    }, 2000); // 2-second delay to simulate real provider latency
   }
 
   private async recordProcessedPayment(event: WebhookEvent): Promise<void> {

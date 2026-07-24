@@ -125,13 +125,38 @@ curl https://knowledgevault-api.onrender.com/health
 
 ---
 
-## 💳 Step 4: Configure YooKassa Webhooks
+## 💳 Step 4: Payment Provider Setup
 
-### 4.1 Get Your Backend URL
+### Option A: Mock Payment (Recommended for Initial Testing)
+
+If you don't have a YooKassa merchant account yet, use the **Mock** provider:
+
+1. Go to Render Dashboard → **Environment Variables**
+2. Set `PAYMENT_PROVIDER_ACTIVE=mock`
+3. **That's it** — no API keys, no webhook registration needed.
+
+**How Mock works:**
+- When a user clicks "Subscribe", the system generates a fake `mock_*` payment
+- The `/workspace/upgrade` page shows a confirmation URL (redirects to a fake page)
+- After 2 seconds, the system automatically simulates a `payment.succeeded` webhook
+- The workspace subscription is activated as if a real payment was made
+- All Mock operations are logged with `[Mock]` prefix for easy identification
+
+> ⚠️ **Important:** Mock mode is **blocked in production** (`NODE_ENV=production`).
+> The backend will refuse to start if you accidentally set `PAYMENT_PROVIDER_ACTIVE=mock` in production.
+
+**Frontend indicator:** When Mock mode is active, a yellow banner "⚠️ Test Mode (Mock)" appears
+at the top of the upgrade page so testers know they're in simulation mode.
+
+---
+
+### Option B: Real YooKassa (Production)
+
+#### 4.1 Get Your Backend URL
 
 Your backend URL is: `https://knowledgevault-api.onrender.com`
 
-### 4.2 Set Up Webhook in YooKassa
+#### 4.2 Set Up Webhook in YooKassa
 
 1. Log in to [yookassa.ru/my/merchant](https://yookassa.ru/my/merchant)
 2. Go to **Integration** → **Webhooks**
@@ -141,7 +166,7 @@ Your backend URL is: `https://knowledgevault-api.onrender.com`
    - **Events:** `payment.succeeded`, `payment.canceled` (at minimum)
 5. Save — YooKassa will send a test notification
 
-### 4.3 Verify Webhook
+#### 4.3 Verify Webhook
 
 1. Check your backend logs in Render Dashboard
 2. You should see `POST /v1/billing/webhook` requests with status 200
