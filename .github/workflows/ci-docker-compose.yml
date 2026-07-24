@@ -1,0 +1,163 @@
+# =============================================================================
+# KnowledgeVault SaaS — Docker Compose CI Workflow
+# =============================================================================
+# Builds and validates the entire application stack in a clean Linux CI
+# environment. Closes the deferred Acceptance Criteria from TASK-001.5.
+#
+# Triggered by:
+#   - Push to main branch
+#   - Manual dispatch (workflow_dispatch)
+# =============================================================================
+
+name: Docker Compose CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Default credentials for MinIO (match docker-compose.yml defaults)
+  MINIO_ROOT_USER: minioadmin
+  MINIO_ROOT_PASSWORD: minioadmin
+  POSTGRES_USER: knowledgevault
+  POSTGRES_PASSWORD: knowledgevault_dev
+  POSTGRES_DB: knowledgevault_dev
+  INTERNAL_API_KEY: ci-internal-api-key
+
+jobs:
+  docker-compose-validation:
+    name: Build & Validate Full Stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Prepare environment ─────────────────────────────────────────────────
+      - name: Create .env with CI-specific values
+        run: |
+          # docker-compose.yml uses ${VAR:-default} for all vars, so we only
+          # need to export the ones that require specific CI values.
+          cat > .env << EOF
+          MINIO_ROOT_USER=${{ env.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD=${{ env.MINIO_ROOT_PASSWORD }}
+          POSTGRES_USER=${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ env.POSTGRES_DB }}
+          INTERNAL_API_KEY=${{ env.INTERNAL_API_KEY }}
+          EOF
+
+      # ── Build & Start Stack ─────────────────────────────────────────────────
+      - name: Build and start all services
+        run: |
+          docker compose up -d --build
+          echo "Stack started. Waiting for services to become healthy..."
+
+      # ── Wait for Health ─────────────────────────────────────────────────────
+      - name: Wait for services to become healthy
+        shell: bash
+        run: |
+          MAX_RETRIES=30
+          RETRY_INTERVAL=10
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "--- Attempt $i / $MAX_RETRIES ---"
+            docker compose ps --format "table {{.Name}}\t{{.Status}}"
+
+            # Count how many services are "healthy" or "running"
+            HEALTHY=$(docker compose ps --format "{{.Status}}" | grep -c -E "(healthy|running|Up)" || true)
+            TOTAL=$(docker compose ps --format "{{.Status}}" | wc -l)
+
+            echo "Healthy/Running: $HEALTHY / $TOTAL"
+
+            # Use dynamic service count — handles future service additions
+            EXPECTED=$(docker compose ps --services | wc -l)
+            if [ "$HEALTHY" -eq "$TOTAL" ] && [ "$TOTAL" -ge "$EXPECTED" ]; then
+              echo "All $TOTAL services are healthy!"
+              exit 0
+            fi
+
+            sleep $RETRY_INTERVAL
+          done
+
+          echo "ERROR: Services did not become healthy within $((MAX_RETRIES * RETRY_INTERVAL)) seconds."
+          docker compose logs --tail=50
+          exit 1
+
+      # ── Health Check: Backend ───────────────────────────────────────────────
+      - name: Verify Backend health (GET /health)
+        run: |
+          RESPONSE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:4000/health)
+          echo "Backend /health returned HTTP $RESPONSE"
+          BODY=$(curl -s http://localhost:4000/health)
+          echo "Body: $BODY"
+          if [ "$RESPONSE" != "200" ]; then
+            echo "ERROR: Backend health check failed"
+            echo "Response body: $BODY"
+            exit 1
+          fi
+          echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok', f'Expected ok, got {d}'"
+          echo "✅ Backend health check passed"
+
+      # ── Health Check: AI Worker ─────────────────────────────────────────────
+      - name: Verify AI Worker health (GET /health)
+        run: |
+          RESPONSE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+          echo "AI Worker /health returned HTTP $RESPONSE"
+          BODY=$(curl -s http://localhost:8000/health)
+          echo "Body: $BODY"
+          if [ "$RESPONSE" != "200" ]; then
+            echo "ERROR: AI Worker health check failed"
+            echo "Response body: $BODY"
+            exit 1
+          fi
+          echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok', f'Expected ok, got {d}'; assert d.get('service')=='ai_worker', f'Expected ai_worker, got {d}'"
+          echo "✅ AI Worker health check passed"
+
+      # ── Health Check: Frontend ──────────────────────────────────────────────
+      - name: Verify Frontend landing page (GET /)
+        run: |
+          RESPONSE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:3001/)
+          echo "Frontend / returned HTTP $RESPONSE"
+          BODY=$(curl -s http://localhost:3001/)
+          if [ "$RESPONSE" != "200" ]; then
+            echo "ERROR: Frontend health check failed"
+            exit 1
+          fi
+          echo "$BODY" | grep -q "KnowledgeVault SaaS" && echo "✅ Landing page contains 'KnowledgeVault SaaS'"
+          echo "✅ Frontend health check passed"
+
+      # ── Health Check: MinIO ─────────────────────────────────────────────────
+      - name: Verify MinIO is accessible
+        run: |
+          # Note: MinIO health endpoint is on the S3 API port (9000), not the
+          # console port (9001). The docker-compose.yml healthcheck also uses
+          # port 9000 for consistency.
+          RESPONSE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:9000/minio/health/live)
+          echo "MinIO health returned HTTP $RESPONSE"
+          if [ "$RESPONSE" != "200" ]; then
+            echo "ERROR: MinIO health check failed"
+            exit 1
+          fi
+          echo "✅ MinIO health check passed"
+
+      # ── Final Status ────────────────────────────────────────────────────────
+      - name: Show final stack status
+        run: |
+          echo "=== Final Stack Status ==="
+          docker compose ps
+          echo ""
+          echo "=== Recent Logs (last 15 lines per service) ==="
+          docker compose logs --tail=15
+
+      # ── Teardown ────────────────────────────────────────────────────────────
+      - name: Clean up (preserve logs on failure)
+        if: always()
+        run: docker compose down -v --remove-orphans

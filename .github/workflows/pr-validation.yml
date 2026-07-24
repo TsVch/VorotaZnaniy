@@ -1,0 +1,111 @@
+# =============================================================================
+# KnowledgeVault SaaS — PR Validation Workflow
+# =============================================================================
+# Runs on every Pull Request to main/develop:
+#   - Lint (ESLint + Ruff)
+#   - Type-check (tsc --noEmit)
+#   - Unit tests (Jest + pytest)
+#
+# Caches pnpm store and pip to keep runs under 5 minutes.
+# =============================================================================
+
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  PNPM_VERSION: "9"
+
+jobs:
+  validate:
+    name: Lint, Type-Check & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Setup Node.js + pnpm ────────────────────────────────────────────────
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-store
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Setup Python + pip ──────────────────────────────────────────────────
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('ai_worker/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install AI Worker dependencies (incl. ruff for linting)
+        run: |
+          pip install --upgrade pip
+          pip install -r ai_worker/requirements.txt
+
+      # ── Lint ────────────────────────────────────────────────────────────────
+      - name: Run ESLint (Backend & Frontend)
+        run: pnpm lint
+
+      - name: Run Ruff (AI Worker)
+        working-directory: ai_worker
+        run: |
+          ruff check app/ tests/
+          ruff format --check app/ tests/
+
+      # ── Type-Check ──────────────────────────────────────────────────────────
+      - name: Type-check Backend
+        working-directory: backend
+        run: pnpm type-check
+
+      - name: Type-check Frontend
+        working-directory: frontend
+        run: pnpm type-check
+
+      # ── Tests ───────────────────────────────────────────────────────────────
+      - name: Run Backend & Frontend tests
+        run: pnpm test
+
+      - name: Run AI Worker tests
+        working-directory: ai_worker
+        run: python -m pytest tests/ -v --tb=short

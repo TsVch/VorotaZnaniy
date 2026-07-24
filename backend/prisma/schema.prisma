@@ -1,0 +1,333 @@
+// =============================================================================
+// KnowledgeVault SaaS — Database Schema (Prisma)
+// =============================================================================
+// Generated from: docs/03_Architecture_and_Design/Database_Design.md
+//
+// NOTE: pgvector extension must be enabled:
+//   CREATE EXTENSION IF NOT EXISTS vector;
+//
+// NOTE: Vector index must be created via raw SQL migration:
+//   CREATE INDEX IF NOT EXISTS idx_embedding_vector ON "embeddings"
+//   USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum Role {
+  ADMIN
+  CREATOR
+  VIEWER
+}
+
+enum Plan {
+  STARTER
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum DocStatus {
+  PROCESSING
+  READY
+  ERROR
+}
+
+/// Status for pending AI processing jobs (ADR-004 Jobs Bridge)
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// =============================================================================
+// Models
+// =============================================================================
+
+/// Stores all user accounts (Creators, Buyers, Admins)
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  passwordHash   String?
+  name           String?
+  avatarUrl      String?
+  role           Role      @default(VIEWER)
+  emailVerified  Boolean   @default(false)
+  defaultWorkspaceId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspaces        Workspace[]
+  workspaceMembers  WorkspaceMember[]
+  accessGrants      AccessGrant[]
+  sessions          Session[]
+  viewEvents        ViewEvent[]
+  aiUsageLogs       AiUsageLog[]
+  watermarks        Watermark[]
+
+  @@map("users")
+}
+
+/// Organizational units for Creators
+model Workspace {
+  id                String       @id @default(uuid())
+  ownerId           String
+  owner             User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name              String
+  slug              String       @unique
+  plan              Plan         @default(STARTER)
+  /// Active payment provider identifier (e.g., "yookassa", "tbank", "stripe")
+  activePaymentProvider String?   @default("yookassa")
+  /// Provider-specific customer/account ID (e.g., YooKassa customer ID)
+  providerCustomerId    String?
+  /// Current subscription status: FREE | ACTIVE | CANCELLED | PAST_DUE
+  subscriptionStatus    String    @default("FREE")
+  /// Active subscription plan: FREE | PRO | BUSINESS | ENTERPRISE
+  subscriptionPlan      String    @default("FREE")
+  /// When the current subscription expires
+  subscriptionExpiresAt DateTime?
+  /// Saved payment method token for recurring payments
+  providerPaymentMethodId String?
+  stripeCustomerId  String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  documents          Document[]
+  subscriptions      Subscription[]
+  workspaceMembers   WorkspaceMember[]
+
+  @@index([ownerId])
+  @@index([slug])
+  @@map("workspaces")
+}
+
+/// Future multi-user workspace membership (Phase 2).
+/// For MVP, only the owner is a member of their workspace.
+model WorkspaceMember {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        String   @default("MEMBER") // OWNER | MEMBER
+  joinedAt    DateTime @default(now())
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@map("workspace_members")
+}
+
+/// Core entity representing uploaded content
+model Document {
+  id                 String    @id @default(uuid())
+  workspaceId        String
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?
+  fileName           String          // Original filename (e.g., "seo_guide.pdf")
+  s3Key              String          // Full S3 object key for storage lookup
+  fileType           String
+  fileSize           Int
+  status             DocStatus @default(PROCESSING)
+  summary            String?   @db.Text
+  protectionConfig   Json      @default("{\"watermarkEnabled\":true,\"maxConcurrentSessions\":2,\"allowDownload\":false}")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  versions           DocumentVersion[]
+  accessGrants       AccessGrant[]
+  sessions           Session[]
+  viewEvents         ViewEvent[]
+  aiUsageLogs        AiUsageLog[]
+  embeddings         Embedding[]
+
+  @@index([workspaceId])
+  @@index([status])
+  @@map("documents")
+}
+
+/// Tracks different versions of a document
+model DocumentVersion {
+  id            String     @id @default(uuid())
+  documentId    String
+  document      Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  fileUrl       String
+  pageCount     Int?
+  processedAt   DateTime?
+  status        DocStatus  @default(PROCESSING)
+  createdAt     DateTime   @default(now())
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+/// Vector embeddings for AI RAG functionality (requires pgvector extension)
+model Embedding {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex  Int
+  chunkText   String   @db.Text
+  embedding   Unsupported("vector(1536)")
+  createdAt   DateTime @default(now())
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId])
+  @@map("embeddings")
+}
+
+/// Tracks which users have access to which documents
+model AccessGrant {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId  String
+  document    Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  grantedAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  source      String    @default("purchase")
+
+  @@unique([userId, documentId])
+  @@index([userId])
+  @@index([documentId])
+  @@map("access_grants")
+}
+
+/// Tracks active viewing sessions for DRM enforcement
+model Session {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId        String
+  document          Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  deviceFingerprint String?
+  ipAddress         String?
+  userAgent         String?
+  isActive          Boolean   @default(true)
+  lastActivity      DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+
+  viewEvents        ViewEvent[]
+  watermarks        Watermark[]
+
+  @@index([userId])
+  @@index([documentId])
+  @@index([isActive])
+  @@map("sessions")
+}
+
+/// Audit log of all watermarks generated (critical for tracking leaks)
+model Watermark {
+  id          String   @id @default(uuid())
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userEmail   String
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ipAddress   String?
+  timestamp   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([userEmail])
+  @@map("watermarks")
+}
+
+/// Analytics data for document viewing (high write volume)
+model ViewEvent {
+  id                String    @id @default(uuid())
+  userId            String?
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  documentId        String
+  document          Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sessionId         String?
+  session           Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  pageNumber        Int?
+  timeSpentSeconds  Int?
+  completed         Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+
+  @@index([documentId])
+  @@index([createdAt])
+  @@map("view_events")
+}
+
+/// Stripe subscription tracking for workspace billing
+model Subscription {
+  id                    String    @id @default(uuid())
+  workspaceId           String
+  workspace             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan                  String
+  stripeSubscriptionId  String    @unique
+  status                String
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  createdAt             DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@map("subscriptions")
+}
+
+/// Internal queue for AI processing jobs.
+/// NestJS writes jobs here; AI Worker polls GET /internal/jobs/pending.
+/// Auto-cleanup of completed/failed jobs after 24h TTL (ADR-004).
+model PendingJob {
+  id          String     @id @default(uuid())
+  jobType     String     // e.g., 'ai_processing'
+  payload     Json       // { document_id, s3_key, ... }
+  status      JobStatus  @default(PENDING)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([jobType, status])
+  @@map("pending_jobs")
+}
+
+/// One-time verification tokens for Magic Link authentication.
+/// Tokens are deleted immediately after successful use (replay protection).
+model VerificationToken {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("verification_tokens")
+}
+
+/// Tracks AI API usage for billing, rate limiting, and cost analysis
+model AiUsageLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  queryType   String
+  tokensUsed  Int
+  cost        Decimal  @db.Decimal(10, 6)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([documentId])
+  @@index([createdAt])
+  @@map("ai_usage_logs")
+}

@@ -1,0 +1,19 @@
+# Pre-existing agent skills (not part of project source)
+.agents/
+.claude/
+
+# Pre-existing documentation (Project Blueprint)
+docs/
+
+# Dependencies and build outputs
+node_modules/
+.pnpm-store/
+dist/
+.next/
+.turbo/
+coverage/
+__pycache__/
+.venv/
+
+# MinIO local data
+.minio-data/

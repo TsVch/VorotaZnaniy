@@ -1,0 +1,140 @@
+# =============================================================================
+# KnowledgeVault SaaS — Render Blueprint (Infrastructure as Code)
+# =============================================================================
+# Deploy the entire backend stack with one click using Render Blueprints.
+#
+# Requires: A Render account (free tier available)
+#
+# After deploying:
+#   1. Copy the Backend Service URL (e.g. https://knowledgevault-api.onrender.com)
+#   2. Set it as YOOKASSA_WEBHOOK_URL in YooKassa merchant dashboard
+#   3. Set FRONTEND_URL to your Vercel staging URL (e.g. https://kv-staging.vercel.app)
+# =============================================================================
+
+services:
+  # ── Backend API (NestJS) ──────────────────────────────────────────────
+  - type: web
+    name: knowledgevault-api
+    env: node
+    region: frankfurt          # Closest to most Russian users (low latency)
+    plan: starter              # $7/month — required for persistent webhooks
+    buildCommand: npm install && npm run build && npx prisma generate
+    startCommand: npx prisma migrate deploy && node dist/main
+    healthCheckPath: /health
+    healthCheckTimeout: 60
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: APP_URL
+        fromService:
+          name: knowledgevault-api
+          type: web
+          property: url
+      - key: FRONTEND_URL
+        sync: false                # Set manually to your Vercel URL
+      - key: DATABASE_URL
+        fromService:
+          name: knowledgevault-db
+          type: pserv
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: knowledgevault-redis
+          type: pserv
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true        # Auto-generate on first deploy
+      - key: JWT_REFRESH_SECRET
+        generateValue: true        # Auto-generate on first deploy
+      - key: JWT_ACCESS_EXPIRY
+        value: "15m"
+      - key: JWT_REFRESH_EXPIRY
+        value: "7d"
+      - key: MAGIC_LINK_EXPIRY_MINUTES
+        value: "15"
+      - key: YOOKASSA_SHOP_ID
+        sync: false
+      - key: YOOKASSA_SECRET_KEY
+        sync: false
+      - key: YOOKASSA_WEBHOOK_SECRET
+        sync: false
+      - key: PAYMENT_PROVIDER_ACTIVE
+        value: "yookassa"
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        value: "auto"
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_UPLOAD_URL_EXPIRY
+        value: "300"
+      - key: S3_VIEW_URL_EXPIRY
+        value: "60"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: "gpt-4o-mini"
+      - key: OPENAI_EMBEDDING_MODEL
+        value: "text-embedding-3-small"
+      - key: EMAIL_PROVIDER
+        value: "resend"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: "noreply@knowledgevault.com"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: RATE_LIMIT_TTL
+        value: "60"
+      - key: RATE_LIMIT_MAX
+        value: "100"
+      - key: AI_RATE_LIMIT_MAX
+        value: "10"
+      - key: UPLOAD_RATE_LIMIT_MAX
+        value: "5"
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: "staging"
+
+  # ── PostgreSQL Database ───────────────────────────────────────────────
+  - type: pserv
+    name: knowledgevault-db
+    env: postgres
+    plan: starter               # Free tier — 256MB RAM, 1GB disk
+    region: frankfurt
+    disk:
+      name: pgdata
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
+    envVars:
+      - key: POSTGRES_DB
+        value: knowledgevault
+      - key: POSTGRES_USER
+        value: kv_user
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+
+  # ── Redis (Session Cache & BullMQ Queue) ──────────────────────────────
+  - type: pserv
+    name: knowledgevault-redis
+    env: redis
+    plan: starter               # Free tier — 256MB RAM
+    region: frankfurt
+    disk:
+      name: redisdata
+      mountPath: /var/lib/redis
+      sizeGB: 1

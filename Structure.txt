@@ -1,0 +1,55 @@
+/docs (Project Blueprint)
+│
+├── README.md                          # Главный файл репозитория документации
+├── INDEX.md                           # Навигационный хаб и карта всех документов
+│
+├── 01_Strategy_and_Business/          # Стратегия и бизнес-требования
+│   ├── Vision.md                      # Видение продукта
+│   ├── Business_Requirements.md       # Бизнес-требования
+│   ├── Market_Analysis.md             # Анализ рынка
+│   ├── Competitive_Analysis.md        # Конкурентный анализ
+│   ├── Value_Proposition.md           # Ценностное предложение
+│   └── Business_Model.md             # Бизнес-модель
+│
+├── 02_Product_and_UX/                 # Продукт и пользовательский опыт
+│   ├── User_Personas.md               # Персоны пользователей
+│   ├── User_Journey.md                # Путь пользователя
+│   ├── PRD.md                         # Product Requirements Document
+│   ├── Feature_Catalog.md             # Каталог фич
+│   ├── MVP_Scope.md                   # Границы MVP
+│   └── Roadmap.md                     # Дорожная карта (Roadmap)
+│
+├── 03_Architecture_and_Design/        # Архитектура и проектирование
+│   ├── System_Architecture.md         # Системная архитектура (High-level)
+│   ├── Backend_Architecture.md        # Архитектура бэкенда
+│   ├── Frontend_Architecture.md       # Архитектура фронтенда
+│   ├── Database_Design.md             # Дизайн базы данных
+│   └── API_Contracts.md               # Контракты API
+│
+├── 04_Security_and_Access/            # Безопасность и доступ (Критично для нашего DRM)
+│   ├── Authentication.md              # Аутентификация
+│   ├── Authorization.md               # Авторизация
+│   ├── Roles_and_Permissions.md       # Роли и права доступа
+│   └── Security_Requirements.md       # Требования к безопасности (DRM, Watermarking)
+│
+├── 05_Infrastructure_and_Operations/  # Инфраструктура и операции
+│   ├── Integrations.md                # Интеграции (Платежи, Платформы авторов)
+│   ├── Infrastructure.md              # Инфраструктура (Cloud, Services)
+│   ├── Deployment.md                  # Стратегия развертывания (CI/CD)
+│   └── Release_Plan.md                # План релизов
+│
+├── 06_Quality_and_Standards/          # Качество и стандарты
+│   ├── Testing_Strategy.md            # Стратегия тестирования
+│   ├── Performance_Requirements.md    # Требования к производительности
+│   ├── Scalability_Strategy.md        # Стратегия масштабирования
+│   ├── Coding_Standards.md            # Стандарты кодирования
+│   └── Project_Structure.md           # Структура проекта (Folders & Files)
+│
+└── 07_Management_and_Process/         # Управление и процессы
+    ├── Definition_of_Done.md          # Критерии готовности (DoD)
+    ├── Acceptance_Criteria.md         # Критерии приемки
+    ├── ADR/                           # Папка для Architecture Decision Records
+    │   └── 000_ADR_Template.md        # Шаблон ADR
+    ├── Risk_Register.md               # Реестр рисков
+    ├── Glossary.md                    # Глоссарий
+    └── Task_Package_Template.md       # Шаблон пакета задач для Freebuff

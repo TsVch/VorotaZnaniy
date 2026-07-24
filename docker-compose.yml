@@ -1,0 +1,237 @@
+# =============================================================================
+# KnowledgeVault SaaS — Docker Compose (Local Development)
+# =============================================================================
+# Single command to spin up the complete application stack:
+#   docker compose up -d
+#
+# Requires a root .env file (copy from .env.example and fill in values).
+# Default credentials for local development are set below; override via .env.
+#
+# Architecture:
+#   ┌─────────────┐     frontend_net     ┌─────────────┐
+#   │  Frontend   │◄────────────────────►│   Backend   │
+#   │  :3001      │                      │  :4000      │
+#   └─────────────┘                      └──────┬──────┘
+#                                               │ backend_net
+#              ┌────────────────────────────────┼──────────────────┐
+#              │              ┌─────────┐      │     ┌──────────┐ │
+#              │              │  Redis  │◄─────┘     │ AI Worker│ │
+#              │              │  :6379  │            │ :8000    │ │
+#              │              └─────────┘            └──────────┘ │
+#              │  ┌──────────┐   ┌──────────┐                    │
+#              │  │PostgreSQL│   │  MinIO   │                    │
+#              │  │  :5432   │   │ :9000/1  │                    │
+#              │  └──────────┘   └──────────┘                    │
+#              └─────────────────────────────────────────────────┘
+# =============================================================================
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  frontend_net:
+    name: knowledgevault_frontend
+    driver: bridge
+
+  backend_net:
+    name: knowledgevault_backend
+    driver: bridge
+    internal: false  # allows service communication; MinIO/DB ports are exposed for dev tooling
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: knowledgevault_postgres_data
+
+  redis_data:
+    name: knowledgevault_redis_data
+
+  minio_data:
+    name: knowledgevault_minio_data
+
+  backend_node_modules:
+    name: knowledgevault_backend_node_modules
+
+  frontend_node_modules:
+    name: knowledgevault_frontend_node_modules
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+  # ── PostgreSQL 15 + pgvector ────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: knowledgevault-postgres
+    restart: unless-stopped
+    networks:
+      - backend_net
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init-pgvector.sql:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-knowledgevault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-knowledgevault_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-knowledgevault_dev}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-knowledgevault} -d ${POSTGRES_DB:-knowledgevault_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Redis 7 ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: knowledgevault-redis
+    restart: unless-stopped
+    networks:
+      - backend_net
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ── MinIO (S3-compatible Object Storage) ────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: knowledgevault-minio
+    restart: unless-stopped
+    networks:
+      - backend_net
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web Console
+    volumes:
+      - minio_data:/data
+    environment:
+      # Default credentials for local dev — override in .env for production
+      # NOTE: S3_ACCESS_KEY_ID/SECRET below must match these values exactly
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_DOMAIN: localhost
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Backend (NestJS) ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../infrastructure/docker/backend/Dockerfile
+    container_name: knowledgevault-backend
+    restart: unless-stopped
+    networks:
+      - frontend_net   # receives traffic from Frontend
+      - backend_net    # talks to DB, Redis, MinIO, AI Worker
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      # Override hostnames for Docker networking (instead of localhost)
+      PORT: 4000
+      APP_URL: ${APP_URL:-http://localhost:3001}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-knowledgevault}:${POSTGRES_PASSWORD:-knowledgevault_dev}@postgres:5432/${POSTGRES_DB:-knowledgevault_dev}
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      # ── MinIO credentials — use MINIO_ROOT_USER/PASSWORD values ──
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # ── Internal API key for AI Worker HTTP Bridge ──
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-api-key-change-me}
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # Dev override: install deps (in case node_modules volume is fresh) + start with hot-reload
+    command: >
+      sh -c "
+        pnpm install &&
+        pnpm run start:dev
+      "
+
+  # ── AI Worker (FastAPI) ─────────────────────────────────────────────────────
+  ai-worker:
+    build:
+      context: ./ai_worker
+      dockerfile: ../infrastructure/docker/ai_worker/Dockerfile
+    container_name: knowledgevault-ai-worker
+    restart: unless-stopped
+    networks:
+      - backend_net    # talks to Backend via HTTP bridge, optionally DB
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      PORT: 8000
+      APP_URL: http://localhost:3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-knowledgevault}:${POSTGRES_PASSWORD:-knowledgevault_dev}@postgres:5432/${POSTGRES_DB:-knowledgevault_dev}
+      INTERNAL_API_URL: http://backend:4000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-api-key-change-me}
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - ./ai_worker:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    # Dev override: install deps + start with hot-reload
+    command: >
+      sh -c "
+        pip install --user -r requirements.txt &&
+        uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+      "
+
+  # ── Frontend (Next.js) ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../infrastructure/docker/frontend/Dockerfile
+    container_name: knowledgevault-frontend
+    restart: unless-stopped
+    networks:
+      - frontend_net  # only communicates with Backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:4000}
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+    # Dev override: install deps first (node_modules volume is empty on first run),
+    # then start Next.js dev server with hot-reload.
+    # Note: the Task Package specifies `pnpm dev`, but we prepend `pnpm install`
+    # to ensure the node_modules volume is populated on first startup.
+    command: >
+      sh -c "
+        pnpm install &&
+        pnpm dev
+      "
