@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   Req,
   UseGuards,
   Headers,
@@ -28,6 +29,7 @@ import { Role } from '@prisma/client';
 import { DocumentsService } from './documents.service';
 import { UploadInitDto } from './dto/upload-init.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import { QueryDocumentsDto } from './dto/query-documents.dto';
 import { DocumentAnalyticsDto } from './dto/document-analytics.dto';
 import { QaRequestDto } from './dto/qa-request.dto';
 import type { QaResponseDto } from './dto/qa-response.dto';
@@ -206,6 +208,51 @@ export class DocumentsController {
     const summary =
       await this.documentsService.generateAndSaveSummary(id);
     return { document_id: id, summary };
+  }
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'List user documents',
+    description:
+      'Returns a paginated list of documents for the authenticated user ' +
+      'with optional status filter and title search.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Documents retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        documents: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              title: { type: 'string' },
+              status: { type: 'string', enum: ['PROCESSING', 'READY', 'ERROR'] },
+              fileSize: { type: 'integer' },
+              pageCount: { type: 'integer', nullable: true },
+              createdAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+        total: { type: 'integer', description: 'Total number of documents matching the query' },
+        page: { type: 'integer', description: 'Current page number' },
+        limit: { type: 'integer', description: 'Number of items per page' },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Missing or invalid JWT token' })
+  async findAll(
+    @Query() query: QueryDocumentsDto,
+    @Req() req: { user?: { sub: string; workspaceId?: string } },
+  ) {
+    const userId = req.user?.sub ?? '';
+    return this.documentsService.findAll(userId, query);
   }
 
   @Get(':id')

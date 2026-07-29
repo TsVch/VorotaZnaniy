@@ -15,6 +15,7 @@ import { JobsBridgeService } from '../jobs-bridge/jobs-bridge.service';
 import { UploadInitDto } from './dto/upload-init.dto';
 import type { ProtectionConfigDto } from './dto/upload-init.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import { QueryDocumentsDto } from './dto/query-documents.dto';
 import { DocumentAnalyticsDto, RecentSessionDto } from './dto/document-analytics.dto';
 import type { SummaryWorkerResponse } from './dto/summary-response.dto';
 import type { QaResponseDto, SourceItem } from './dto/qa-response.dto';
@@ -413,6 +414,110 @@ export class DocumentsService {
     }
 
     return workerResult;
+  }
+
+  // ── List Documents (with pagination & filters) ─────────────────────
+
+  /**
+   * Returns a paginated list of documents for the authenticated user.
+   * Resolves the user's default workspace, then lists documents within it.
+   * Supports optional status filter and case-insensitive title search.
+   * Results are ordered by most recently created first.
+   *
+   * @param userId - Authenticated user ID (from JWT)
+   * @param query - Pagination, filter, and search params
+   * @returns Paginated document list matching the frontend's DocumentListResponse shape
+   */
+  async findAll(
+    userId: string,
+    query: QueryDocumentsDto,
+  ): Promise<{
+    documents: Array<{
+      id: string;
+      title: string;
+      status: string;
+      fileSize: number;
+      pageCount: number | null;
+      createdAt: Date;
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    // ── Step 1: Resolve user's default workspace ──────────────────────────
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { defaultWorkspaceId: true },
+    });
+
+    const workspaceId = user?.defaultWorkspaceId;
+    if (!workspaceId) {
+      throw new NotFoundException('No workspace found for user');
+    }
+
+    // ── Step 2: Build query ────────────────────────────────────────────────
+    const { page = 1, limit = 10, status, search } = query;
+    const skip = (page - 1) * limit;
+
+    const where: Record<string, unknown> = { workspaceId };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (search) {
+      where.title = {
+        contains: search,
+        mode: 'insensitive',
+      };
+    }
+
+    // ── Step 3: Fetch documents + total count in parallel ───────────────────
+    try {
+      const [documents, total] = await Promise.all([
+        this.prisma.document.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            fileSize: true,
+            createdAt: true,
+          },
+        }),
+        this.prisma.document.count({ where }),
+      ]);
+
+      // Enrich with pageCount from latest DocumentVersion
+      const enriched = await Promise.all(
+        documents.map(async (doc) => {
+          const latestVersion = await this.prisma.documentVersion.findFirst({
+            where: { documentId: doc.id },
+            orderBy: { versionNumber: 'desc' },
+            select: { pageCount: true },
+          });
+          return {
+            ...doc,
+            pageCount: latestVersion?.pageCount ?? null,
+          };
+        }),
+      );
+
+      return {
+        documents: enriched,
+        total,
+        page,
+        limit,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to list documents for user ${userId} (workspace ${workspaceId}): ${(error as Error).message}`,
+      );
+      throw new BadRequestException('Could not fetch documents');
+    }
   }
 
   // ── Get Single Document ────────────────────────────────────────────
