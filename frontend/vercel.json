@@ -4,7 +4,6 @@
   "devCommand": "pnpm run dev",
   "installCommand": "pnpm install",
   "outputDirectory": ".next",
-  "rootDirectory": "frontend",
   "regions": ["iad1"],
   "headers": [
     {
