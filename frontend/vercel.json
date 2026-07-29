@@ -1,9 +1,10 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "installCommand": "npm ci",
+  "buildCommand": "pnpm run build",
+  "devCommand": "pnpm run dev",
+  "installCommand": "pnpm install",
   "outputDirectory": ".next",
+  "rootDirectory": "frontend",
   "regions": ["iad1"],
   "headers": [
     {
