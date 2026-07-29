@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { authApi } from '@/lib/api/client';
 import { saveAuthData } from '@/lib/auth';
 
-export default function VerifyMagicLinkPage() {
+function VerifyMagicLinkContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -90,5 +90,22 @@ export default function VerifyMagicLinkPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function VerifyMagicLinkPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <span className="mx-auto block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <VerifyMagicLinkContent />
+    </Suspense>
   );
 }
