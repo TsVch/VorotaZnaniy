@@ -14,6 +14,17 @@ const API_BASE_URL =
 
 let authToken: string | null = null;
 
+// Hydrate the access token from localStorage so API requests carry the
+// Authorization header immediately after a page reload (fixes 401 on
+// /documents right after login). Guarded for SSR / prerendering.
+if (typeof window !== 'undefined') {
+  try {
+    authToken = localStorage.getItem('kv_access_token');
+  } catch {
+    authToken = null;
+  }
+}
+
 /**
  * Sets the JWT access token for subsequent API requests.
  */
@@ -36,6 +47,7 @@ export function getAuthToken(): string | null {
 export function clearAuthAndRedirect(): void {
   setAuthToken(null);
   if (typeof window !== 'undefined') {
+    localStorage.removeItem('kv_access_token');
     localStorage.removeItem('kv_refresh_token');
     localStorage.removeItem('kv_user');
     document.cookie = 'kv_auth=; path=/; max-age=0; SameSite=Lax';

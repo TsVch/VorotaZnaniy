@@ -22,6 +22,23 @@ import { getFreshToken, resetRefreshQueue } from '../interceptor';
 import { getAuthToken } from '@/lib/api/client';
 import { getRefreshToken, clearAuthData } from '@/lib/auth';
 
+// ── Test helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Encode a string as base64url (the format real JWT segments use:
+ * '-'/'_' instead of '+'/'/', no '=' padding).
+ */
+function base64UrlEncode(value: string): string {
+  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Build a realistic base64url JWT (header.payload.signature) with `exp`. */
+function makeJwt(exp: number): string {
+  const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = base64UrlEncode(JSON.stringify({ sub: 'user-1', exp }));
+  return `${header}.${payload}.signature`;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 describe('getFreshToken (interceptor)', () => {
@@ -57,6 +74,30 @@ describe('getFreshToken (interceptor)', () => {
     const token = await getFreshToken();
 
     expect(token).toBe(EXISTING_TOKEN);
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it('AC-2: should skip expired in-memory token and refresh instead', async () => {
+    const EXPIRED_TOKEN = makeJwt(Math.floor(Date.now() / 1000) - 60);
+    const NEW_TOKEN = 'fresh-token-after-expiry';
+    (getAuthToken as Mock).mockReturnValue(EXPIRED_TOKEN);
+    (getRefreshToken as Mock).mockReturnValue('valid-refresh-token');
+    mockRefresh.mockResolvedValue({ accessToken: NEW_TOKEN });
+
+    const token = await getFreshToken();
+
+    expect(token).toBe(NEW_TOKEN);
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(mockRefresh).toHaveBeenCalledWith('valid-refresh-token');
+  });
+
+  it('AC-2: should use fast path for a still-valid token', async () => {
+    const VALID_TOKEN = makeJwt(Math.floor(Date.now() / 1000) + 3600);
+    (getAuthToken as Mock).mockReturnValue(VALID_TOKEN);
+
+    const token = await getFreshToken();
+
+    expect(token).toBe(VALID_TOKEN);
     expect(mockRefresh).not.toHaveBeenCalled();
   });
 

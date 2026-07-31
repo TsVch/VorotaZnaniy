@@ -1,9 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ToastProvider } from '@/components/ui/toast';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { clearAuthData } from '@/lib/auth';
+import { resetRefreshQueue } from '@/lib/api/interceptor';
 import { cn } from '@/lib/utils';
 
 /**
@@ -19,6 +21,13 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    resetRefreshQueue();
+    clearAuthData();
+    router.push('/auth/login');
+  };
 
   // Hide sidebar for viewer page
   const isViewer = pathname?.startsWith('/viewer');
@@ -74,6 +83,20 @@ export default function DashboardLayout({
               >
                 Subscription
               </NavLink>
+
+              <span
+                className="mx-1 h-5 w-px bg-border"
+                aria-hidden="true"
+              />
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Sign out"
+              >
+                Sign Out
+              </button>
             </nav>
           </div>
         </header>

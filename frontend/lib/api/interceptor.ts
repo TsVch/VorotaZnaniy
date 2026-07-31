@@ -32,9 +32,9 @@ let refreshPromise: Promise<string> | null = null;
  * @throws If refresh fails (auth data cleared, redirect to login)
  */
 export async function getFreshToken(): Promise<string> {
-  // ── Fast path: token still valid ──────────────────────────────────────
+  // ── Fast path: token still valid (not expired) ────────────────────────
   const currentToken = getAuthToken();
-  if (currentToken) {
+  if (currentToken && !isTokenExpired(currentToken)) {
     return currentToken;
   }
 
@@ -60,6 +60,29 @@ export function resetRefreshQueue(): void {
 }
 
 // ── Internal ───────────────────────────────────────────────────────────────
+
+/**
+ * Check whether a JWT access token is expired based on its `exp` claim.
+ * Returns false for malformed tokens or tokens without `exp` so the fast
+ * path keeps working; an expired token forces a real refresh instead.
+ */
+function isTokenExpired(token: string): boolean {
+  try {
+    // JWT segments are base64url (uses '-'/'_' instead of '+'/'/', no
+    // padding). Normalize to standard base64 before atob() — otherwise
+    // atob() throws for most real tokens and expiry checks silently fail.
+    const b64 = (token.split('.')[1] ?? '')
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(padded));
+    return (
+      typeof payload?.exp === 'number' && payload.exp * 1000 <= Date.now()
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function startRefresh(): Promise<string> {
   const refreshToken = getRefreshToken();
