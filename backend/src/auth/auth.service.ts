@@ -96,11 +96,12 @@ export class AuthService {
       );
     } else {
       // ── Create new user (OAuth-only, no password hash) ────────────────
+      // New users are CREATORs (they own a workspace and can upload docs).
       try {
         user = await this.prisma.user.create({
           data: {
             email,
-            role: 'VIEWER',
+            role: 'CREATOR',
             name: profile.name ?? null,
             avatarUrl: profile.avatarUrl ?? null,
           },
@@ -239,13 +240,15 @@ export class AuthService {
     }
 
     // ── Create user ─────────────────────────────────────────────────────
+    // New users are CREATORs: they get their own workspace and can upload
+    // documents (upload-init / upload-complete require Role.CREATOR).
     let user: { id: string; email: string; role: string; defaultWorkspaceId: string | null };
     try {
       user = await this.prisma.user.create({
         data: {
           email: normalizedEmail,
           passwordHash,
-          role: 'VIEWER',
+          role: 'CREATOR',
         },
         select: { id: true, email: true, role: true, defaultWorkspaceId: true },
       });
@@ -421,10 +424,16 @@ export class AuthService {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
-      // Verify the user still exists
+      // Verify the user still exists (include defaultWorkspaceId so the
+      // refreshed access token keeps the workspaceId claim)
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, email: true, role: true },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          defaultWorkspaceId: true,
+        },
       });
 
       if (!user) {

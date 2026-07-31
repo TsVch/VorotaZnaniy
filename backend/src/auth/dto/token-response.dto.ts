@@ -10,7 +10,7 @@ export class AuthUserResponse {
   @ApiProperty({ description: 'User email address' })
   email!: string;
 
-  @ApiProperty({ description: 'User role', example: 'VIEWER' })
+  @ApiProperty({ description: 'User role', example: 'CREATOR' })
   role!: string;
 }
 

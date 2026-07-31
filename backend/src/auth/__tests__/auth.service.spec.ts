@@ -35,7 +35,7 @@ describe('AuthService', () => {
   const mockUser = {
     id: 'user-uuid-123',
     email: 'newuser@example.com',
-    role: 'VIEWER',
+    role: 'CREATOR',
     passwordHash: MOCK_HASH,
     defaultWorkspaceId: null,
   };
@@ -109,12 +109,13 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
       expect(result.user.email).toBe('newuser@example.com');
-      expect(result.user.role).toBe('VIEWER');
+      expect(result.user.role).toBe('CREATOR');
 
-      // Password should be hashed before saving
+      // New users are created with the CREATOR role (can upload documents)
       const createCall = (prisma.user.create as jest.Mock).mock
         .calls[0][0].data;
       expect(createCall.email).toBe('newuser@example.com');
+      expect(createCall.role).toBe('CREATOR');
       expect(createCall.passwordHash).not.toBe('SecurePass123');
       expect(createCall.passwordHash).toBe(MOCK_HASH);
 

@@ -128,7 +128,7 @@ export class MagicLinkService {
    * Verify a magic link token.
    *
    * AC-3: If valid, the token is immediately deleted and JWT tokens are returned.
-   * If the user doesn't exist, one is created (role: VIEWER).
+   * If the user doesn't exist, one is created (role: CREATOR).
    *
    * AC-4: If the token is expired, already used, or invalid, an error is thrown.
    */
@@ -167,10 +167,11 @@ export class MagicLinkService {
     });
 
     if (!user) {
+      // New users are CREATORs (they own a workspace and can upload docs).
       user = await this.prisma.user.create({
         data: {
           email: record.email,
-          role: 'VIEWER',
+          role: 'CREATOR',
         },
         select: { id: true, email: true, role: true, defaultWorkspaceId: true },
       });

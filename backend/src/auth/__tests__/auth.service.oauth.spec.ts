@@ -18,7 +18,7 @@ describe('AuthService — validateOAuthUser', () => {
   const existingUser = {
     id: 'existing-user-uuid',
     email: 'existing@example.com',
-    role: 'VIEWER',
+    role: 'CREATOR',
   };
 
   const newProfile: OAuthProfile = {
@@ -96,7 +96,7 @@ describe('AuthService — validateOAuthUser', () => {
     (prisma.user.create as jest.Mock).mockResolvedValue({
       id: 'new-oauth-uuid',
       email: newProfile.email,
-      role: 'VIEWER',
+      role: 'CREATOR',
     });
 
     const result = await service.validateOAuthUser(newProfile);
@@ -106,7 +106,7 @@ describe('AuthService — validateOAuthUser', () => {
       .data;
     expect(createCall.email).toBe(newProfile.email);
     expect(createCall.passwordHash).toBeUndefined();
-    expect(createCall.role).toBe('VIEWER');
+    expect(createCall.role).toBe('CREATOR');
     expect(createCall.name).toBe(newProfile.name);
     expect(createCall.avatarUrl).toBe(newProfile.avatarUrl);
 
@@ -114,7 +114,7 @@ describe('AuthService — validateOAuthUser', () => {
     expect(result).toHaveProperty('accessToken');
     expect(result).toHaveProperty('refreshToken');
     expect(result.user.email).toBe(newProfile.email);
-    expect(result.user.role).toBe('VIEWER');
+    expect(result.user.role).toBe('CREATOR');
   });
 
   // ── Existing user linking ───────────────────────────────────────────────

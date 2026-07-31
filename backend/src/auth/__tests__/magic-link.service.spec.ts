@@ -176,7 +176,7 @@ describe('MagicLinkService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-uuid',
         email: 'user@example.com',
-        role: 'VIEWER',
+        role: 'CREATOR',
         defaultWorkspaceId: null,
       });
 
@@ -208,14 +208,14 @@ describe('MagicLinkService', () => {
       (prisma.user.create as jest.Mock).mockResolvedValue({
         id: 'new-user-uuid',
         email: 'user@example.com',
-        role: 'VIEWER',
+        role: 'CREATOR',
         defaultWorkspaceId: 'ws-mock-magic',
       });
 
       const result = await service.verify(validToken);
 
       expect(prisma.user.create).toHaveBeenCalledWith({
-        data: { email: 'user@example.com', role: 'VIEWER' },
+        data: { email: 'user@example.com', role: 'CREATOR' },
         select: { id: true, email: true, role: true, defaultWorkspaceId: true },
       });
       expect(result.user.email).toBe('user@example.com');
@@ -261,7 +261,7 @@ describe('MagicLinkService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-uuid',
         email: 'user@example.com',
-        role: 'VIEWER',
+        role: 'CREATOR',
       });
 
       // First verify succeeds
