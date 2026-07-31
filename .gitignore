@@ -8,6 +8,7 @@ dist/
 .turbo/
 build/
 *.tsbuildinfo
+storybook-static/
 
 # Environment files
 .env
@@ -53,6 +54,9 @@ coverage/
 # Test artifacts
 test-results/
 playwright-report/
+**/playwright-report/
+**/test-results/
+**/.playwright-artifacts/
 
 # Docker
 .dockerignore
