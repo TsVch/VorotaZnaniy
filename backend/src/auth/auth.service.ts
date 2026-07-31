@@ -196,11 +196,13 @@ export class AuthService {
     id: string;
     email: string;
     role: string;
+    defaultWorkspaceId?: string | null;
   }): AuthUserResponse {
     return {
       id: user.id,
       email: user.email,
       role: user.role,
+      defaultWorkspaceId: user.defaultWorkspaceId ?? null,
     };
   }
 
@@ -300,7 +302,13 @@ export class AuthService {
     // ── Find user ───────────────────────────────────────────────────────
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
-      select: { id: true, email: true, role: true, passwordHash: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        passwordHash: true,
+        defaultWorkspaceId: true,
+      },
     });
 
     if (!user) {

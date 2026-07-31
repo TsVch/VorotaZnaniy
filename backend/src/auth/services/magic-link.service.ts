@@ -203,6 +203,7 @@ export class MagicLinkService {
         id: user.id,
         email: user.email,
         role: user.role,
+        defaultWorkspaceId: user.defaultWorkspaceId ?? null,
       },
     };
   }

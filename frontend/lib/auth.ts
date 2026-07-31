@@ -26,6 +26,7 @@ export interface StoredUser {
   id: string;
   email: string;
   role: string;
+  defaultWorkspaceId?: string | null;
 }
 
 // ── Cookie helpers (for middleware) ────────────────────────────────────────

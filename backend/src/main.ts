@@ -23,7 +23,14 @@ async function bootstrap(): Promise<void> {
     origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      // Creator-scoped endpoints (upload-init, upload-complete, etc.)
+      // require X-Workspace-Id — must be allowed for cross-origin preflight.
+      'X-Workspace-Id',
+    ],
   });
 
   // ---- API Versioning ----

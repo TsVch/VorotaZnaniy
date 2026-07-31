@@ -111,6 +111,10 @@ describe('AuthService', () => {
       expect(result.user.email).toBe('newuser@example.com');
       expect(result.user.role).toBe('CREATOR');
 
+      // AC-1 (TASK-012.14): default workspace is exposed in the auth
+      // response so the frontend can attach X-Workspace-Id automatically
+      expect(result.user.defaultWorkspaceId).toBe('ws-mock-id');
+
       // New users are created with the CREATOR role (can upload documents)
       const createCall = (prisma.user.create as jest.Mock).mock
         .calls[0][0].data;

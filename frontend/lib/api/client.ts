@@ -56,6 +56,23 @@ export function clearAuthAndRedirect(): void {
 }
 
 /**
+ * Reads the default workspace UUID from localStorage (kv_user).
+ * Kept local to client.ts to avoid a circular import with lib/auth.ts
+ * (auth.ts already imports setAuthToken from this module).
+ */
+function getDefaultWorkspaceIdFromStorage(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('kv_user');
+    if (!raw) return null;
+    const user = JSON.parse(raw) as { defaultWorkspaceId?: string | null };
+    return user.defaultWorkspaceId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Generic request helper with JWT auth, global error handling,
  * auto-refresh, and interceptor integration.
  *
@@ -88,6 +105,15 @@ async function executeWithRetry<T>(
 
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
+  // Auto-attach the creator's default workspace for workspace-scoped
+  // endpoints (upload-init, upload-complete, etc.). The backend falls back
+  // to the JWT claim when this header is absent, but sending it explicitly
+  // keeps requests self-describing and matches the API contract.
+  const workspaceId = getDefaultWorkspaceIdFromStorage();
+  if (workspaceId) {
+    headers['x-workspace-id'] = workspaceId;
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -220,6 +246,7 @@ export interface AuthUserResponse {
   id: string;
   email: string;
   role: string;
+  defaultWorkspaceId?: string | null;
 }
 
 export interface TokenResponse {

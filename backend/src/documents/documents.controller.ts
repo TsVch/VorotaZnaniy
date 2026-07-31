@@ -83,13 +83,23 @@ export class DocumentsController {
   })
   async uploadInit(
     @Body() dto: UploadInitDto,
-    @Headers('x-workspace-id') workspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+    @Req()
+    req?: {
+      workspaceId?: string;
+      user?: { workspaceId?: string };
+    },
   ): Promise<{
     document_id: string;
     upload_url: string;
     expires_in: number;
   }> {
-    return this.documentsService.initUpload(workspaceId ?? '', dto);
+    // Prefer the workspace resolved by WorkspaceOwnerGuard (header or JWT
+    // fallback), then the raw header, then the JWT claim. Never send an
+    // empty string to the service (was the cause of HTTP 400).
+    const workspaceId =
+      req?.workspaceId ?? headerWorkspaceId ?? req?.user?.workspaceId ?? '';
+    return this.documentsService.initUpload(workspaceId, dto);
   }
 
   @Post(':id/upload-complete')
@@ -146,13 +156,22 @@ export class DocumentsController {
   })
   async completeUpload(
     @Param('id') id: string,
-    @Headers('x-workspace-id') workspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+    @Req()
+    req?: {
+      workspaceId?: string;
+      user?: { workspaceId?: string };
+    },
   ): Promise<{
     document_id: string;
     status: string;
     message: string;
   }> {
-    return this.documentsService.completeUpload(id, workspaceId ?? '');
+    // Prefer the workspace resolved by WorkspaceOwnerGuard (header or JWT
+    // fallback), then the raw header, then the JWT claim.
+    const workspaceId =
+      req?.workspaceId ?? headerWorkspaceId ?? req?.user?.workspaceId ?? '';
+    return this.documentsService.completeUpload(id, workspaceId);
   }
 
   @Post(':id/summary')
