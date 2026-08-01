@@ -214,6 +214,75 @@ After deployment, verify the following:
 
 ---
 
+## ☁️ Step 7: Configure Storage Bucket CORS (S3 / R2)
+
+Documents are uploaded **directly from the browser** to your storage bucket (S3 or Cloudflare R2) via presigned PUT URLs. The bucket must allow cross-origin requests from your frontend domain, otherwise the browser blocks the upload with:
+
+```
+Network error during S3 upload
+No 'Access-Control-Allow-Origin' header is present on the requested resource
+```
+
+> ⚠️ **Check the bucket exists first!** If the bucket name in `S3_BUCKET` doesn't exist (or is in a different region), the upload fails with `NoSuchBucket` **regardless of CORS**. The uploaded policy file `infrastructure/s3-cors-policy.json` is pre-filled with the correct rules for this project.
+
+### 7.1 Verify the bucket is reachable (no credentials needed)
+
+```bash
+curl -s -i -X OPTIONS https://<YOUR-BUCKET>.s3.us-east-1.amazonaws.com/ \
+  -H "Origin: https://vorota-znaniy-frontend-one.vercel.app" \
+  -H "Access-Control-Request-Method: PUT" \
+  -H "Access-Control-Request-Headers: Content-Type"
+```
+
+> 💡 **Using Cloudflare R2 instead of AWS?** The hostname is different: use your R2 account endpoint, e.g. `https://<account>.r2.cloudflarestorage.com/` (or a custom domain you configured). With the wrong hostname the check below will look like a missing bucket even though it exists.
+
+- **`404 NoSuchBucket`** or **`403 CORSResponse: Bucket not found`** → the bucket **does not exist** at this endpoint/region. Create it first (or fix `S3_BUCKET`/`S3_ENDPOINT` on Render).
+- **`403` + no `Access-Control-Allow-Origin` header** → bucket exists, CORS is not configured → apply the rules below.
+- **`200` + `Access-Control-Allow-Origin`** → CORS already works.
+
+### 7.2 Option A: Cloudflare R2 (used by the production template)
+
+The backend `.env.production.example` points to R2 (`S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com`, `S3_BUCKET=knowledgevault-staging`).
+
+1. Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com) → **R2** → your bucket
+2. Open **Settings** → **CORS Policy** → **Edit**
+3. Paste the CORS rules (same as `infrastructure/s3-cors-policy.json`, but without the `CORSRules` wrapper — R2 expects a plain array). `ExposeHeaders`/`MaxAgeSeconds` are optional for R2:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://vorota-znaniy-frontend-one.vercel.app"],
+    "AllowedMethods": ["PUT", "GET", "POST"],
+    "AllowedHeaders": ["Content-Type", "Content-Disposition", "x-amz-*"]
+  }
+]
+```
+
+4. Save — R2 applies CORS immediately (no propagation delay).
+
+### 7.3 Option B: AWS S3
+
+**Via Console (recommended):**
+1. [AWS S3 Console](https://s3.console.aws.amazon.com) → bucket → **Permissions** → **Cross-origin resource sharing (CORS)** → **Edit**
+2. Paste the content of `infrastructure/s3-cors-policy.json`
+3. Save — wait 1–2 minutes for propagation
+
+**Via CLI (if AWS CLI is installed and configured):**
+
+```bash
+aws s3api put-bucket-cors --bucket <YOUR-BUCKET> --cors-configuration file://infrastructure/s3-cors-policy.json
+```
+
+### 7.4 Final check
+
+```bash
+# Repeat the preflight from 7.1 — now expect 200 with Access-Control-Allow-Origin
+```
+
+Then upload a test document through the frontend and watch the Network tab: the `PUT <presigned-url>` request must return **200**.
+
+---
+
 ## 🔧 Troubleshooting
 
 ### CORS Errors in Browser
@@ -224,6 +293,17 @@ After deployment, verify the following:
 1. Verify `FRONTEND_URL` in Render env vars matches your Vercel URL exactly (no trailing slash)
 2. If you have multiple frontend URLs, use comma-separated format:
    `FRONTEND_URL=https://kv-staging.vercel.app,http://localhost:3001`
+3. If the upload itself fails (not the API), see **Step 7** — the bucket CORS is a separate setting from the backend CORS
+
+### Network error during S3 upload
+
+**Problem:** Browser blocks the direct PUT to the bucket (`No 'Access-Control-Allow-Origin'`).
+
+**Fix:**
+1. Confirm the bucket **exists** — run the preflight in §7.1; `404 NoSuchBucket` means the bucket name/region is wrong
+2. Apply the CORS rules from `infrastructure/s3-cors-policy.json` (Step 7)
+3. Confirm the `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` on Render match the provider (R2 vs AWS)
+4. The frontend must send the **exact same `Content-Type`** header in the PUT as the one signed in the presigned URL
 
 ### Backend Health Check Fails
 
